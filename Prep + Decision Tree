@@ -1,0 +1,157 @@
+import warnings
+warnings.filterwarnings("ignore")
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, ConfusionMatrixDisplay,
+    roc_curve, auc
+)
+## Load and clean the dataset
+
+- drop `CLIENTNUM` because it is just a customer ID.
+- drop the two `Naive_Bayes_Classifier...` columns because they are model-generated columns and should not be used as input features.
+- Target:
+  - `Existing Customer` = 0
+  - `Attrited Customer` = 1
+# Load data
+df = pd.read_csv("BankChurners.csv")
+
+# Drop ID and leakage columns
+drop_cols = ["CLIENTNUM"] + [col for col in df.columns if col.startswith("Naive_Bayes_Classifier")]
+df = df.drop(columns=drop_cols)
+
+# Encode target
+df["Attrition_Flag"] = df["Attrition_Flag"].map({
+    "Existing Customer": 0,
+    "Attrited Customer": 1
+})
+
+
+df.head()
+counts = df["Attrition_Flag"].value_counts().sort_index()
+
+plt.figure(figsize=(7, 5))
+plt.bar(["Existing", "Churned"], counts.values)
+
+for i, v in enumerate(counts.values):
+    plt.text(i, v + 80, str(v), ha="center")
+
+plt.title("Customer Churn Distribution")
+plt.ylabel("Number of Customers")
+plt.tight_layout()
+plt.show()
+
+print(f"Churn rate: {df['Attrition_Flag'].mean()*100:.2f}%")
+# Separate features and target
+X = df.drop(columns=["Attrition_Flag"])
+y = df["Attrition_Flag"]
+
+# One-hot encode categorical variables
+X = pd.get_dummies(X, drop_first=True)
+
+# Train/test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
+)
+
+# Scale
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+## Transaction Count vs. Churn Customer
+# Separate the data
+existing = df[df["Attrition_Flag"] == 0]["Total_Trans_Ct"]
+churned = df[df["Attrition_Flag"] == 1]["Total_Trans_Ct"]
+
+plt.figure(figsize=(6, 4))
+
+plt.boxplot([existing, churned], labels=["Existing Customer", "Churned Customer"])
+
+plt.title("Transaction Count vs Customer Churn")
+plt.xlabel("Customer Status")
+plt.ylabel("Total Transaction Count")
+
+plt.tight_layout()
+plt.show()
+from sklearn.model_selection import GridSearchCV
+from sklearn.tree import DecisionTreeClassifier
+
+params = {
+    "max_depth": [3, 4, 5, 6],
+    "min_samples_split": [2, 5, 10]
+}
+
+grid = GridSearchCV(
+    DecisionTreeClassifier(random_state=42, class_weight="balanced"),
+    params,
+    cv=5,
+    scoring="f1"
+)
+
+grid.fit(X_train, y_train)
+
+best_dt = grid.best_estimator_
+
+print("Best Parameters:", grid.best_params_)
+dt_model = best_dt
+dt_model.fit(X_train, y_train)
+
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+y_pred_dt = dt_model.predict(X_test)
+
+dt_metrics = {
+    "Accuracy": accuracy_score(y_test, y_pred_dt),
+    "Precision": precision_score(y_test, y_pred_dt),
+    "Recall": recall_score(y_test, y_pred_dt),
+    "F1 Score": f1_score(y_test, y_pred_dt)
+}
+
+pd.DataFrame(dt_metrics, index=["Decision Tree"]).T
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
+cm_dt = confusion_matrix(y_test, y_pred_dt)
+
+disp = ConfusionMatrixDisplay(
+    confusion_matrix=cm_dt,
+    display_labels=["Existing Customer", "Attrited Customer"]
+)
+
+disp.plot(values_format="d")
+plt.title("Decision Tree Confusion Matrix")
+plt.show()
+from sklearn.tree import plot_tree
+
+plt.figure(figsize=(30, 15))
+plot_tree(
+    dt_model,
+    feature_names=X.columns,
+    class_names=["Stay", "Churn"],
+    filled=True,
+    rounded=True,
+    fontsize=9
+)
+plt.title("Decision Tree for Customer Churn")
+plt.show()
+dt_importance = pd.Series(dt_model.feature_importances_, index=X.columns)
+dt_top = dt_importance.sort_values(ascending=False).head(10)
+
+plt.figure(figsize=(8, 5))
+dt_top.sort_values().plot(kind="barh")
+plt.title("Top 10 Decision Tree Feature Importances")
+plt.xlabel("Importance")
+plt.show()
+
+dt_top
